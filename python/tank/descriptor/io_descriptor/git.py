@@ -93,7 +93,8 @@ class IODescriptorGit(IODescriptorBase):
         log.debug("Checking that git exists and can be executed...")
         try:
             output = subprocess_check_output(["git", "--version"])
-        except:
+        except Exception, e:
+            log.exception("Unexpected exception while checking for git")
             raise TankGitError(
                 "Cannot execute the 'git' command. Please make sure that git is "
                 "installed on your system and that the git executable has been added to the PATH."
@@ -130,7 +131,6 @@ class IODescriptorGit(IODescriptorBase):
                 try:
                     output = subprocess_check_output(
                         full_command,
-                        stderr=subprocess.STDOUT,
                         shell=True
                     )
 

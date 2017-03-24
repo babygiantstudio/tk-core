@@ -1,14 +1,20 @@
 # Copyright (c) 2016 Shotgun Software Inc.
-# 
+#
 # CONFIDENTIAL AND PROPRIETARY
-# 
-# This work is provided "AS IS" and subject to the Shotgun Pipeline Toolkit 
+#
+# This work is provided "AS IS" and subject to the Shotgun Pipeline Toolkit
 # Source Code License included in this distribution package. See LICENSE.
-# By accessing, using, copying or modifying this work you indicate your 
-# agreement to the Shotgun Pipeline Toolkit Source Code License. All rights 
+# By accessing, using, copying or modifying this work you indicate your
+# agreement to the Shotgun Pipeline Toolkit Source Code License. All rights
 # not expressly granted therein are reserved by Shotgun Software Inc.
 
 import subprocess
+import pprint
+
+from ..log import LogManager
+
+logger = LogManager.get_logger(__name__)
+
 
 class SubprocessCalledProcessError(Exception):
     """
@@ -39,14 +45,28 @@ def subprocess_check_output(*popenargs, **kwargs):
              The CalledProcessError object will have the return code in the returncode
              attribute and any output in the output attribute.
     """
-    if "stdout" in kwargs:
-        raise ValueError("stdout argument not allowed, it will be overridden.")
-    process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
+    if "stdout" in kwargs or "stderr" in kwargs:
+        raise ValueError("stdout and stderr arguments not allowed, they will be overridden.")
+
+    process = subprocess.Popen(stdout=subprocess.PIPE, stdin=subprocess.STDOUT, *popenargs, **kwargs)
+#    process.stdin.close()
     output, unused_err = process.communicate()
     retcode = process.poll()
+
     if retcode:
+
+        logger.debug("Subprocess invocation failed:")
+        if popenargs:
+            logger.debug("Args  : %s", pprint.pformat(popenargs))
+        if kwargs:
+            logger.debug("Kwargs: %s", pprint.pformat(kwargs))
+        logger.debug("Return code: %d", retcode)
+        logger.debug("Process stdout/stderr:")
+        logger.debug(output)
+
         cmd = kwargs.get("args")
         if cmd is None:
             cmd = popenargs[0]
+
         raise SubprocessCalledProcessError(retcode, cmd, output=output)
     return output
