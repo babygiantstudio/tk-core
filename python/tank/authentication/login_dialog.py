@@ -21,14 +21,15 @@ at any point.
 from .ui import login_dialog
 from . import session_cache
 from .errors import AuthenticationError
-from .ui.qt_abstraction import QtGui, QtCore, QtNetwork
+from .ui.qt_abstraction import QtGui, QtCore, QtNetwork, QtWebKit
 from tank_vendor.shotgun_api3 import Shotgun, MissingTwoFactorAuthenticationFault
 from tank_vendor.shotgun_api3.lib.httplib2 import ServerNotFoundError
+from tank_vendor.shotgun_api3.lib.xmlrpclib import ProtocolError
 
 
 class OffscreenEventLoop(QtCore.QEventLoop):
     """
-    Local event loop for the session token renewal. The return value of _exec()
+    Local event loop for the session token renewal. The return value of _exec().
     indicates what happened.
     """
 
@@ -107,6 +108,7 @@ class LoginDialog(QtGui.QDialog):
 
         # self._no_gui = True
         self._no_gui = no_gui
+        self._use_sso = False
 
         # If we have cookies, let's first try without GUI
         if len(self._cookies) > 0:
@@ -153,6 +155,8 @@ class LoginDialog(QtGui.QDialog):
         else:
             self._set_login_message("Please enter your credentials.")
 
+        # Ensure that the background color is not controlled by the login page.
+        self.ui.webView.setStyleSheet('background-color:white;')
         try:
             self.ui.webView.page().networkAccessManager().cookieJar().setAllCookies(
                 [QtNetwork.QNetworkCookie.parseCookies(str(x))[0] for x in self._cookies]
@@ -160,6 +164,34 @@ class LoginDialog(QtGui.QDialog):
         except TypeError:
             # @FIXME: Should log the cookie related issue
             pass
+
+        ###############
+        #
+        # #    #    ##    #####   #    #     #    #    #   ####
+        # #    #   #  #   #    #  ##   #     #    ##   #  #    #
+        # #    #  #    #  #    #  # #  #     #    # #  #  #
+        # # ## #  ######  #####   #  # #     #    #  # #  #  ###
+        # ##  ##  #    #  #   #   #   ##     #    #   ##  #    #
+        # #    #  #    #  #    #  #    #     #    #    #   ####
+        #
+        ###############
+        self._dialog = QtGui.QDialog()
+        self._dialog.setWindowTitle('SSO Login')
+        # self._dialog.finished.connect(self.on_dialog_closed)
+
+        self._view = QtWebKit.QWebView(self._dialog)
+
+        # self.ui.site.setText('https://sso-dev-2.shotgunstudio.com')
+        ###############
+        #
+        # #    #    ##    #####   #    #     #    #    #   ####
+        # #    #   #  #   #    #  ##   #     #    ##   #  #    #
+        # #    #  #    #  #    #  # #  #     #    # #  #  #
+        # # ## #  ######  #####   #  # #     #    #  # #  #  ###
+        # ##  ##  #    #  #   #   #   ##     #    #   ##  #    #
+        # #    #  #    #  #    #  #    #     #    #    #   ####
+        #
+        ###############
 
         # Select the right first page.
         url = self.ui.site.text()
@@ -187,6 +219,7 @@ class LoginDialog(QtGui.QDialog):
         self.ui.use_app.clicked.connect(self._use_app_pressed)
 
         self.ui.forgot_password_link.linkActivated.connect(self._link_activated)
+        self.ui.use_sso_link.linkActivated.connect(self._toggle_sso)
 
         self.ui.site.editingFinished.connect(self._strip_whitespaces)
         self.ui.login.editingFinished.connect(self._strip_whitespaces)
@@ -204,6 +237,9 @@ class LoginDialog(QtGui.QDialog):
             if 'user_authentication_method' in info:
                 return info['user_authentication_method'] == 'saml2'
         except ServerNotFoundError:
+            # Silently ignore exception
+            pass
+        except ProtocolError:
             # Silently ignore exception
             pass
         except ValueError:
@@ -258,6 +294,12 @@ class LoginDialog(QtGui.QDialog):
             self._set_error_message(
                 self.ui.message, "Can't open '%s'." % forgot_password
             )
+
+    def _toggle_sso(self):
+        self._use_sso = not self._use_sso
+        self.ui.login.setEnabled(not self._use_sso)
+        self.ui.password.setEnabled(not self._use_sso)
+        # self.ui.message.setVisible(not self._use_sso)
 
     def _current_page_changed(self, index):
         """
@@ -345,12 +387,17 @@ class LoginDialog(QtGui.QDialog):
         if len(site) == 0:
             self._set_error_message(self.ui.message, "Please enter the address of the site to connect to.")
             return
-        if len(login) == 0:
-            self._set_error_message(self.ui.message, "Please enter your login name.")
-            return
-        if len(password) == 0:
-            self._set_error_message(self.ui.message, "Please enter your password.")
-            return
+        if not self._use_sso:
+            if len(login) == 0:
+                self._set_error_message(self.ui.message, "Please enter your login name.")
+                return
+            if len(password) == 0:
+                self._set_error_message(self.ui.message, "Please enter your password.")
+                return
+        else:
+            login = self.ui.login.text()
+            password = ""
+            self._dialog.exec_()
 
         # if not protocol specified assume https
         if len(site.split("://")) == 1:
@@ -378,6 +425,7 @@ class LoginDialog(QtGui.QDialog):
         :raises MissingTwoFactorAuthenticationFault: Raised if auth_code was None but was required
             by the server.
         """
+        print "HERE"
         success = False
         try:
             # set the wait cursor
